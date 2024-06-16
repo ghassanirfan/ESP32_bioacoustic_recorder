@@ -1,0 +1,10 @@
+1. Pastikan python telah terinstal :
+-> buka terminal atau cmd -> ketikan python -v -> enter 
+JIKA NOT FOUND INSTALL TERLEBIH DAHULU (Download : https://www.python.org/downloads/)
+2. Di terminal atau cmd ketikan :
+pip install -r requirement.txt 
+lalu 
+winget install ffmpeg
+3. untuk pengguna windows 10 keatas dapat langsung double click di app.py 
+4. untuk pengguna windows 10 KEBAWAH :
+Buka CMD ketikan python app.py
