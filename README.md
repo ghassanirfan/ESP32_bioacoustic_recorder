@@ -98,7 +98,7 @@ This project is still under development. Some features may be incomplete or subj
 - **Special Thanks**: BirdNET Analyzer team, K. Lisa Yang Center for Conservation Bioacoustics
 - **Project Funding**: Departement Of Biology, Sebelas Maret University
 ## License
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE.txt) file for details.
 
 ## Acknowledgments
 - [BirdNET Analyzer](https://github.com/kahst/BirdNET-Analyzer) (CC BY-NC-SA 4.0 License)
