@@ -1,4 +1,4 @@
-# ESP32 Recorder Project
+# ESP32 Bioaccoustic Recorder
 
 ## Overview
 
