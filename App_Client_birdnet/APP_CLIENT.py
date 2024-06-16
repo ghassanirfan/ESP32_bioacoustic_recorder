@@ -461,7 +461,7 @@ Authors: Ghassan Irfan
 
 License: -
 
-Project Funding: Hasbiyan Rosyadi
+Project Funding: Departement Of Biology, Sebelas Maret University
 
 For more information, visit github.com/ghassanirfan
 or contact me : ghassanirfan@student.uns.ac.id
