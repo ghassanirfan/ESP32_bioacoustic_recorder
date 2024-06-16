@@ -57,12 +57,12 @@ This project aims to capture bird sounds using ESP32 devices. These recordings c
 
 1. **Running the Client Application**:
    - Navigate to the `App_Client_Birdnet` directory.
-   - Check Check requirements.txt for Dependencies:
-      -Ensure you have Python installed.
-      -Install the necessary Python packages using pip:
-     ```bash
-     pip install -r requirements.txt
-     
+   - Check Check requirements.txt for Dependencies
+   - Ensure you have Python installed.
+   - Install the necessary Python packages using pip:
+   ```bash
+   pip install -r requirements.txt
+   ```  
    - Run the client application:
 
     ```bash
@@ -92,9 +92,9 @@ This project is still under development. Some features may be incomplete or subj
 
 ## Contributors
 
-- **Authors**: Ghassan Irfan
+- **Authors**: Ghassan Irfan Nauval Al Althaf
 - **Special Thanks**: BirdNET Analyzer team, K. Lisa Yang Center for Conservation Bioacoustics
-- **Project Funding**: -
+- **Project Funding**: Departement Of Biology, Sebelas Maret University
 ## License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
