@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project aims to capture bird sounds using ESP32 devices. These recordings can be controlled and downloaded over a local Wi-Fi network (without internet access). The recorded audio files are then analyzed directly using the BirdNET Analyzer integrated with the client application. The project is still under development.
+This project aims to capture Bioaccoustic, especially bird sounds using ESP32 devices. These recordings can be controlled and downloaded over a local Wi-Fi network (without internet access). The recorded audio files are then analyzed directly using the BirdNET Analyzer integrated with the client application. The project is still under development.
 
 ## Project Structure
 
@@ -16,6 +16,7 @@ This project aims to capture bird sounds using ESP32 devices. These recordings c
 ## Features
 
 - **Control and Download Recordings**: Start and stop recordings on the ESP32 devices and download the recorded files.
+- **Recording result**: Recording with 44.1 Khz and 32 bits per sample
 - **Local Network Operation**: Operates over a local Wi-Fi network without needing internet access.
 - **BirdNET Analyzer Integration**: Direct analysis of recordings using BirdNET Analyzer from within the client application.
 - **ESP32 Time Synchronization**: Synchronize ESP32 device time with the client device.
