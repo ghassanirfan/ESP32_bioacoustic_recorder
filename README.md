@@ -58,8 +58,18 @@ This project aims to capture Bioaccoustic, especially bird sounds using ESP32 de
 
 1. **Running the Client Application**:
    - Navigate to the `App_Client_Birdnet` directory.
-   - Check Check requirements.txt for Dependencies
+   - Check requirements.txt for Dependencies
    - Ensure you have Python installed.
+   - Install ffmpeg from your terminal
+     
+   For Windows
+   ```bash
+   winget install ffmpeg
+   ```
+   For Linux 
+   ```bash
+   sudo apt-get install ffmpeg
+   ```
    - Install the necessary Python packages using pip:
    ```bash
    pip install -r requirements.txt
