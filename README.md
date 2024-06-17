@@ -1,8 +1,8 @@
-# ESP32 Bioaccoustic Recorder
+# ESP32 Bioacoustic Recorder
 
 ## Overview
 
-This project aims to capture Bioaccoustic, especially bird sounds using ESP32 devices. These recordings can be controlled and downloaded over a local Wi-Fi network (without internet access). The recorded audio files are then analyzed directly using the BirdNET Analyzer integrated with the client application. The project is still under development.
+This project aims to capture Bioacoustic, especially bird sounds using ESP32 devices. These recordings can be controlled and downloaded over a local Wi-Fi network (without internet access). The recorded audio files are then analyzed directly using the BirdNET Analyzer integrated with the client application. The project is still under development.
 
 ## Project Structure
 
