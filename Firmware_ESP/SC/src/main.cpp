@@ -31,11 +31,16 @@ SOFTWARE.
 #include <driver/i2s.h>
 #include <ESPmDNS.h>
 #include <sys/time.h>
+#include <Update.h>
+
+
 
 // WiFi credentials
-const char* ssid = "bioaccousticrec";
-const char* password = "12345678";
+const char* ssid = "YOUR_SSID";
+const char* password = "YOUR_PASS";
 const char* Record_Name = "ESPREC-01";
+const char* firmware_version = "FW_1.4.1_unsigned_locale";
+const char* serial_number = "000000011";
 
 // I2S configuration
 #define I2S_WS 25
@@ -43,16 +48,20 @@ const char* Record_Name = "ESPREC-01";
 #define I2S_SCK 32
 #define I2S_PORT I2S_NUM_0
 
+
 // SD card configuration
 #define SD_CS 5
 
 // LED pin
 #define LED_PIN 2
+bool ledState = false;  // Status LED
+unsigned long previousMillis = 0;
+const unsigned long blinkInterval = 1000; // Blinking setiap 1 detik (1000 ms)
 
 // File management
 File recordingFile;
 bool isRecording = false;
-const int sampleRate = 44100;
+const int sampleRate = 48000;
 const int bitDepth = 32;
 uint64_t totalSamples = 0;
 
@@ -118,8 +127,16 @@ void setup() {
 
   // Set up web server routes
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(200, "text/plain", "Hello, this is ESP32 Audio Recorder");
+    String response = "{\n";
+    response += "  \"Device Name\": \"" + String(Record_Name) + "\",\n";
+    response += "  \"Firmware Version\": \"" + String(firmware_version) + "\",\n";
+    response += "  \"Serial Number\": \"" + String(serial_number) + "\",\n";
+    response += "  \"SSID Name\": \"" + String(ssid) + "\"\n";
+    response += "}";
+
+    request->send(200, "application/json", response); // Hapus request->send kedua
   });
+
 
   server.on("/start", HTTP_GET, [](AsyncWebServerRequest *request){
     startRecording();
@@ -137,6 +154,7 @@ void setup() {
   });
   
   server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "reset");
     ESP.restart();
   });
 
@@ -205,6 +223,28 @@ void setup() {
       request->send(400, "text/plain", "File parameters missing");
     }
   });
+  server.on("/update", HTTP_POST, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Firmware update started");
+}, [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+    if (!index) {
+        Serial.printf("Update Start: %s\n", filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { // Mulai update
+            Update.printError(Serial);
+        }
+    }
+
+    if (Update.write(data, len) != len) {
+        Update.printError(Serial);
+    }
+
+    if (final) {
+        if (Update.end(true)) {
+            Serial.printf("Update Success: %u bytes\n", index + len);
+        } else {
+            Update.printError(Serial);
+        }
+    }
+});
 
   server.begin();
 }
@@ -212,6 +252,16 @@ void setup() {
 void loop() {
   if (isRecording) {
     recordAudio();
+    unsigned long currentMillis = millis();
+    
+    // Jika waktu sekarang sudah lebih dari interval blinking
+    if (currentMillis - previousMillis >= blinkInterval) {
+      previousMillis = currentMillis;
+      ledState = !ledState;  // Toggle LED
+      digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+    }
+  } else {
+    digitalWrite(LED_PIN, LOW);  // Matikan LED jika tidak merekam
   }
 }
 
@@ -235,8 +285,7 @@ void startRecording() {
 
   // Write WAV header
   writeWavHeader(recordingFile, 0);
-
-  digitalWrite(LED_PIN, HIGH);
+  WiFi.setSleep(true);
   isRecording = true;
   totalSamples = 0;
 
@@ -255,11 +304,35 @@ void stopRecording() {
 
   Serial.println("Recording stopped");
 }
+/*
+//non gain, only 16 bit bcs 32 bit -> 24 bit frame only, skip 1 bit and parsing 16 bit depth
+void recordAudio() {
+  uint8_t i2sData[1024];  // Buffer untuk data mentah dari I2S
+  size_t bytesRead = 0;
+
+  i2s_read(I2S_PORT, &i2sData, sizeof(i2sData), &bytesRead, portMAX_DELAY);
+
+  if (bytesRead > 0) {
+    size_t numSamples = bytesRead / 4;  // Karena 1 sample = 4 byte dalam mode 32-bit
+    int16_t processedSamples[numSamples];  // Buffer untuk data 16-bit yang akan disimpan
+    
+    for (size_t i = 0; i < numSamples; ++i) {
+      size_t byteIndex = i * 4;  // 4 byte per sample
+      int32_t value = ((int32_t*)(i2sData + byteIndex))[0] >> 8;  // Ambil 16-bit paling signifikan dengan delay 1 bit
+      processedSamples[i] = (int16_t)value;
+    }
+
+    recordingFile.write((uint8_t*)processedSamples, numSamples * sizeof(int16_t));
+    totalSamples += numSamples;
+  }
+}
+*/
+
 
 void recordAudio() {
   uint8_t i2sData[1024];
   size_t bytesRead = 0;
-  float gain = 50.0f;  // Contoh nilai gain, bisa diatur sesuai kebutuhan
+  float gain = 18.0f;  // Atur gainnya disini. normal bagus 18, tinggi bisa clipping <50
 
   i2s_read(I2S_PORT, &i2sData, sizeof(i2sData), &bytesRead, portMAX_DELAY);
   if (bytesRead > 0) {
@@ -300,8 +373,8 @@ void recordAudio() {
 
 void writeWavHeader(File file, int fileSize) {
   byte header[44];
-  int sampleRate = 44100;
-  int bitsPerSample = 32;
+  int sampleRate = 48000;
+  int bitsPerSample = 32; //uncoment yang non gain, ganti ini ke 16bit karena di skip 8 bit
   int channels = 1;
 
   int byteRate = sampleRate * channels * bitsPerSample / 8;
