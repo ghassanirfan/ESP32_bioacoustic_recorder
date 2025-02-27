@@ -730,7 +730,7 @@ about_tab.columnconfigure(0, weight=1)
 about_tab.rowconfigure(0, weight=1)
 
 about_text = """
-ESP32 Recorder v1.0
+ESP32 Recorder v1.5
 
 This program allows you to control ESP32 recording devices,
 download recorded files, and analyze recordings with BirdNET-analyzer.
