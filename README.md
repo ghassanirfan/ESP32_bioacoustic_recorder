@@ -1,5 +1,5 @@
 # ESP32 Bioacoustic Recorder
-## ********* UPDATE 1.5 ******
+## ****** UPDATE 1.5 ******
 1. Fix noise problem with lowered gain
 2. add update via OTA with client app
 3. add status with firmware ver and s/n
