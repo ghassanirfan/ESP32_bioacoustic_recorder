@@ -2,14 +2,18 @@ import socket
 import time
 import requests
 from zeroconf import ServiceBrowser, Zeroconf
-from datetime import datetime
+from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+from tkinter import ttk, messagebox, filedialog, simpledialog, Toplevel
 from threading import Thread
+import threading
 import os
 import subprocess
 import pandas as pd
 import sys
+import pytz
+
+LOCAL_TIMEZONE = pytz.timezone('Asia/Jakarta')
 
 is_recording = False
 start_time = None
@@ -20,6 +24,7 @@ timer_running = False
 download_progress = None
 download_folder_path = None
 selected_files = []
+recording_schedule = []
 
 class EspListener:
     def __init__(self):
@@ -34,6 +39,20 @@ class EspListener:
     def update_service(self, zeroconf, type, name):
         pass
 
+def get_device_info(esp_ip):
+    url = f"http://{esp_ip}/"
+    try:
+        response = requests.get(url)
+        response_text = response.text.strip()
+        
+        # Coba parsing JSON
+        try:
+            return response.json()
+        except ValueError:
+            return {"Error": "Invalid JSON response", "Raw Response": response_text}
+        
+    except requests.exceptions.RequestException as e:
+        return {"Error": str(e)}
 def scan_esp():
     listener = EspListener()
     zeroconf = Zeroconf()
@@ -41,6 +60,113 @@ def scan_esp():
     time.sleep(5)
     zeroconf.close()
     return listener.esp32_list
+
+def periodic_scan_esp():
+    global esp_list
+    synced_devices = set()  # Menyimpan ESP yang sudah disinkronisasi
+    while True:
+        esp_list = scan_esp()
+        print(f"Scanned ESP devices: {esp_list}")
+        
+        # Sinkronisasi waktu otomatis untuk ESP yang baru ditemukan
+        for esp_name, esp_ip in esp_list.items():
+            if esp_ip not in synced_devices:
+                sync_time(esp_ip)
+                synced_devices.add(esp_ip)  # Tandai sebagai sudah disinkronisasi
+        
+        time.sleep(10)  # Scan setiap 10 detik
+
+def check_schedule():
+    while True:
+        now = datetime.now(LOCAL_TIMEZONE).strftime('%H:%M')
+        for schedule in recording_schedule:
+            start_time = schedule["time"]
+            duration = schedule["duration"]
+            stop_time = (datetime.strptime(start_time, '%H:%M') + timedelta(minutes=duration)).strftime('%H:%M')
+            
+            if start_time == now and schedule["status"] == "Scheduled":
+                start_recording_all()
+                schedule["status"] = "Recording..."
+                threading.Thread(target=schedule_stop_recording, args=(stop_time,)).start()
+        time.sleep(10)
+
+def schedule_stop_recording(stop_time):
+    while datetime.now(LOCAL_TIMEZONE).strftime('%H:%M') != stop_time:
+        time.sleep(10)
+    stop_recording_all()
+
+def add_schedule():
+    global recording_schedule  
+    time_input = time_entry.get()
+    duration_input = duration_entry.get()
+    
+    if time_input and duration_input.isdigit():
+        recording_schedule.append({"time": time_input, "duration": int(duration_input), "status": "Scheduled"})
+        schedule_listbox.insert(tk.END, f"{time_input} ({duration_input} min)")
+        draw_timeline()
+    else:
+        messagebox.showwarning("Warning", "Please enter a valid time and duration")
+
+def delete_schedule():
+    global recording_schedule
+    selection = schedule_listbox.curselection()
+    if recording_schedule and selection:
+        selected_index = selection[0]
+        schedule_listbox.delete(selected_index)  # Hapus dari listbox
+        del recording_schedule[selected_index]
+        draw_timeline()
+    else:
+        messagebox.showwarning("Warning", "No schedule to delete.")
+
+def draw_timeline():
+    canvas.delete("all")
+    width = 533
+    height = 50
+    canvas.create_rectangle(0, 10, width, 40, fill="gray", outline="black")
+    
+    for schedule in recording_schedule:
+        try:
+            start_time = datetime.strptime(schedule["time"], '%H:%M')
+            start_hour = start_time.hour + start_time.minute / 60.0
+            end_hour = start_hour + schedule["duration"] / 60.0
+            
+            x1 = int((start_hour / 24) * width)
+            x2 = int((end_hour / 24) * width)
+            canvas.create_rectangle(x1, 10, x2, 40, fill="red", outline="black")
+        except ValueError:
+            continue
+    
+    current_time = datetime.now().hour + datetime.now().minute / 60.0
+    x_now = int((current_time / 24) * width)
+    canvas.create_line(x_now, 5, x_now, 45, fill="green", width=2)
+    
+    for i in range(0, 25, 6):
+        x_label = int((i / 24) * width)
+        canvas.create_text(x_label, 45, text=f"{i:02}:00", anchor="n", font=("Arial", 8))
+def start_recording_all():
+    global is_recording
+    if not esp_list:
+        messagebox.showwarning("Warning", "No ESP devices found")
+        return
+    
+    is_recording = True
+    for esp_ip in esp_list.values():
+        threading.Thread(target=start_recording, args=(esp_ip,)).start()
+
+def stop_recording_all():
+    global is_recording
+    if not esp_list:
+        messagebox.showwarning("Warning", "No ESP devices found")
+        return
+    
+    for esp_ip in esp_list.values():
+        threading.Thread(target=stop_recording, args=(esp_ip,)).start()
+    is_recording = False
+
+# Start periodic scanning in a separate thread
+threading.Thread(target=periodic_scan_esp, daemon=True).start()
+threading.Thread(target=check_schedule, daemon=True).start()
+
 
 def reset_esp(esp_ip):
     url = f"http://{esp_ip}/reset"
@@ -194,6 +320,26 @@ def select_download_folder():
         messagebox.showinfo("Success", f"Download folder set to: {download_folder_path}")
     else:
         messagebox.showwarning("Warning", "No folder selected for download")
+def update_firmware(esp32_ip, firmware_path):
+    url =  f"http://{esp32_ip}/update"
+    try:
+        with open(firmware_path, 'rb') as firmware:
+            files = {'firmware': firmware}
+            response = requests.post(url, files=files)
+            
+            if response.status_code == 200:
+                messagebox.showinfo("Success", "Firmware updated successfully!, Please restart your device immediately")
+            else:
+                messagebox.showerror("Error", f"Firmware update failed: {response.text}")
+    except requests.exceptions.RequestException as e:
+        messagebox.showerror("Error", f"Request failed: {e}")
+def select_firmware_file():
+    firmware_path = filedialog.askopenfilename(filetypes=[("BIN files", "*.bin")])
+    if firmware_path:
+        if selected_esp:
+            update_firmware(selected_esp, firmware_path)
+        else:
+            messagebox.showwarning("Warning", "No ESP selected for OTA update.")
 
 def download_single_file(url, filename):
     global download_progress
@@ -225,7 +371,7 @@ def sync_time(esp32_ip):
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            messagebox.showinfo("Success", "Time synchronized successfully")
+            print("Success", "Time synchronized successfully")
         else:
             messagebox.showerror("Error", "Failed to synchronize time")
     except requests.exceptions.RequestException as e:
@@ -250,6 +396,16 @@ def on_esp_select(event):
         selected_esp_name_ip = esp_listbox.get(selected_index)
         selected_esp = selected_esp_name_ip.split('(')[1][:-1]
         sync_time(selected_esp)
+        
+        # Ambil info perangkat dari ESP yang dipilih
+        device_info = get_device_info(selected_esp)
+        
+        # Perbarui label dengan informasi perangkat
+        device_name_label.config(text=f"Device Name: {device_info.get('Device Name', 'N/A')}")
+        firmware_label.config(text=f"Firmware Version: {device_info.get('Firmware Version', 'N/A')}")
+        serial_label.config(text=f"Serial Number: {device_info.get('Serial Number', 'N/A')}")
+        ssid_label.config(text=f"SSID Name: {device_info.get('SSID Name', 'N/A')}")
+
 
 def scan_command():
     select_esp()
@@ -355,6 +511,50 @@ def update_timer():
         elapsed_time = int(time.time() - start_time)
         timer_label.config(text=f"Recording Duration: {time.strftime('%H:%M:%S', time.gmtime(elapsed_time))}")
         time.sleep(1)
+def select_esp_popup():
+    def confirm_selection():
+        global selected_esp
+        selected_index = esp_listbox.curselection()
+        if selected_index:
+            selected_esp = esp_listbox.get(selected_index[0])
+            messagebox.showinfo("ESP Selected", f"Selected ESP: {selected_esp}")
+            popup.destroy()
+        else:
+            messagebox.showwarning("Warning", "Please select an ESP device")
+
+    popup = Toplevel(root)
+    popup.title("Select ESP Device")
+    popup.geometry("300x300")
+    
+    ttk.Label(popup, text="Available ESP Devices:").pack(pady=5)
+    esp_listbox = tk.Listbox(popup, height=10)
+    esp_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+    
+    # Populate the listbox with scanned ESP devices
+    esp_list = scan_esp()
+    for esp in esp_list.values():
+        esp_listbox.insert(tk.END, esp)
+    
+    ttk.Button(popup, text="Select", command=confirm_selection).pack(pady=5)
+
+def update_esp_listbox():
+    global esp_list
+    threading.Thread(target=scan_esp_thread).start()
+
+def scan_esp_thread():
+    global esp_list
+    esp_list = scan_esp()
+    root.after(0, refresh_esp_listbox)
+
+def refresh_esp_listbox():
+    esp_listbox.delete(0, tk.END)
+    for esp_name, esp_ip in esp_list.items():
+        esp_listbox.insert(tk.END, f"{esp_name} ({esp_ip})")
+def update_clock():
+    now = datetime.now(pytz.timezone("Asia/Jakarta"))  # WIB (UTC+7)
+    clock_label.config(text=now.strftime("%H:%M:%S  %d/%m/%Y  WIB"))
+    clock_label.after(1000, update_clock)  # Update setiap 1 detik
+
 
 def exit_command():
     root.quit()
@@ -362,16 +562,17 @@ def exit_command():
 # GUI Setup
 root = tk.Tk()
 root.title("Client APP Recording Devices")
-root.geometry('600x650')
+root.geometry('600x700')
 
 # Path to the azure-dark theme file
 theme_path = os.path.join(os.path.dirname(__file__), "azure.tcl")
 
 # Apply the azure-dark theme
 root.tk.call("source", theme_path)
-root.tk.call("set_theme", "dark")
+root.tk.call("set_theme", "light")
 style = ttk.Style(root)
-style.theme_use("azure-dark")
+style.theme_use("azure-light")
+
 
 # Tabs for ESP32 devices and files
 tab_parent = ttk.Notebook(root)
@@ -383,12 +584,85 @@ tab_parent.add(esp_tab, text="Recording Devices")
 esp_tab.columnconfigure(0, weight=1)
 esp_tab.rowconfigure(0, weight=1)
 
-esp_frame = ttk.LabelFrame(esp_tab, text="Choose Recording Devices")
+esp_frame = ttk.LabelFrame(esp_tab, text="All available recording devices ")
 esp_frame.grid(row=0, column=0, padx=10, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+
 esp_listbox = tk.Listbox(esp_frame, height=10, width=79)
 esp_listbox.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
 esp_listbox.bind('<<ListboxSelect>>', on_esp_select)
-ttk.Button(esp_frame, text="Scan for Recording Devices", command=scan_command).grid(row=1, column=0, pady=5)
+# Frame untuk menampilkan informasi perangkat yang dipilih
+info_frame = ttk.LabelFrame(esp_frame, text="Device Info")
+info_frame.grid(row=1, column=0, padx=5, pady=5, sticky=(tk.W, tk.E))
+
+# Label untuk informasi perangkat
+device_name_label = ttk.Label(info_frame, text="Device Name: -")
+device_name_label.grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+
+firmware_label = ttk.Label(info_frame, text="Firmware Version: -")
+firmware_label.grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+
+serial_label = ttk.Label(info_frame, text="Serial Number: -")
+serial_label.grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+
+ssid_label = ttk.Label(info_frame, text="SSID Name: -")
+ssid_label.grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+
+ttk.Button(esp_frame, text="Update Firmware", command=select_firmware_file).grid(row=3, column=0, pady=5)
+
+# Tab Schedule
+schedule_tab = ttk.Frame(tab_parent)
+tab_parent.add(schedule_tab, text="Recording Schedule")
+
+clock_frame = ttk.Frame(schedule_tab)
+clock_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
+
+clock_label = ttk.Label(clock_frame, font=("Times New Roman", 20, "bold"), anchor="center")
+clock_label.pack(pady=5)
+
+schedule_frame = ttk.LabelFrame(schedule_tab, text="Schedule Recording")
+schedule_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+
+# Frame untuk input waktu dan durasi
+input_frame = ttk.Frame(schedule_frame)
+input_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
+
+# Label dan Entry untuk waktu
+ttk.Label(input_frame, text="Time (HH:MM):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
+time_entry = ttk.Entry(input_frame, width=10)
+time_entry.grid(row=0, column=1, padx=5, pady=2)
+
+# Label dan Entry untuk durasi
+ttk.Label(input_frame, text="Duration (min):").grid(row=0, column=2, padx=5, pady=2, sticky="w")
+duration_entry = ttk.Entry(input_frame, width=5)
+duration_entry.grid(row=0, column=3, padx=5, pady=2)
+
+# Tombol "Add" dan "Delete"
+ttk.Button(input_frame, text="Add", command=add_schedule).grid(row=0, column=4, padx=5, pady=2)
+ttk.Button(input_frame, text="Delete", command=delete_schedule).grid(row=0, column=5, padx=5, pady=2)
+
+# Canvas untuk Timeline
+canvas = tk.Canvas(schedule_frame, width=250, height=60, bg="white")
+canvas.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+# Frame untuk Listbox dan Scrollbar
+listbox_frame = ttk.Frame(schedule_frame)
+listbox_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
+# Listbox untuk menampilkan jadwal yang ditambahkan
+schedule_listbox = tk.Listbox(listbox_frame, height=5)  # Batasi tinggi Listbox
+schedule_listbox.pack(side="left", fill="both", expand=True)
+
+# Scrollbar untuk Listbox
+scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=schedule_listbox.yview)
+scrollbar.pack(side="right", fill="y")
+schedule_listbox.config(yscrollcommand=scrollbar.set)
+
+# Konfigurasi Grid agar expand dengan baik
+schedule_tab.columnconfigure(0, weight=1)
+schedule_frame.columnconfigure(0, weight=1)
+input_frame.columnconfigure(1, weight=1)
+listbox_frame.columnconfigure(0, weight=1)
+
 
 # Files tab
 files_tab = ttk.Frame(tab_parent)
@@ -396,14 +670,18 @@ tab_parent.add(files_tab, text="Files")
 files_tab.columnconfigure(0, weight=1)
 files_tab.rowconfigure(0, weight=1)
 
-files_frame = ttk.LabelFrame(files_tab, text="Files")
+files_frame = ttk.LabelFrame(files_tab, text="Files & ESP Devices")
 files_frame.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
-files_listbox = tk.Listbox(files_frame, height=10, width=79)
-files_listbox.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
-ttk.Button(files_frame, text="Get file list", command=get_files_command).grid(row=1, column=0, pady=5)
-ttk.Button(files_frame, text="Select Download Folder", command=select_download_folder).grid(row=2, column=0, padx=10, pady=5, sticky="ew")
-ttk.Button(files_frame, text="Download file", command=download_command).grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-ttk.Button(files_frame, text="Delete file", command=delete_file_command).grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+
+ttk.Button(files_frame, text="Select Recording Devices", command=select_esp_popup).pack(pady=5)
+
+ttk.Label(files_frame, text="Files on Selected ESP:").pack()
+files_listbox = tk.Listbox(files_frame, height=10)
+files_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+ttk.Button(files_frame, text="Get file list", command=get_files_command).pack(pady=5)
+ttk.Button(files_frame, text="Select Download Folder", command=select_download_folder).pack(pady=5)
+ttk.Button(files_frame, text="Download file", command=download_command).pack(pady=5)
+ttk.Button(files_frame, text="Delete file", command=delete_file_command).pack(pady=5)
 
 
 # BirdNET Analyzer tab
@@ -459,9 +737,9 @@ download recorded files, and analyze recordings with BirdNET-analyzer.
 
 Authors: Ghassan Irfan
 
-License: -
+License: CC-BY-SA 4.0
 
-Project Funding: Departement Of Biology, Sebelas Maret University
+Project Funding: Departement Biology, Sebelas Maret University
 
 For more information, visit github.com/ghassanirfan
 or contact me : ghassanirfan@student.uns.ac.id
@@ -475,15 +753,15 @@ about_label.grid(row=0, column=0, padx=10, pady=10, sticky=(tk.W, tk.E, tk.N, tk
 progress_frame = ttk.Frame(root)
 progress_frame.pack(pady=10)
 download_progress = ttk.Label(progress_frame, text="Progress: 0 / 0 MB | Speed: 0 KB/s")
-download_progress.pack(fill="x", padx=10, pady=5)
+download_progress.pack(fill="x", padx=10, pady=5)   
 
 # Actions
 action_frame = ttk.LabelFrame(root, text="Actions")
 action_frame.pack(padx=10, pady=5, fill="x")
 action_frame.columnconfigure(0, weight=1)
 
-ttk.Button(action_frame, text="Start recording", command=start_command).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-ttk.Button(action_frame, text="Stop recording", command=stop_command).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+ttk.Button(action_frame, text="Start recording", command=start_recording_all).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+ttk.Button(action_frame, text="Stop recording", command=stop_recording_all).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 ttk.Button(action_frame, text="Reset ESP", command=reset_command).grid(row=0, column=2, padx=5, pady=5, sticky="ew")
 ttk.Button(action_frame, text="Sync time", command=sync_command).grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
@@ -493,5 +771,7 @@ timer_label.grid(row=1, column=0, columnspan=4, pady=5)
 
 # Exit button
 ttk.Button(root, text="Exit", command=exit_command).pack(pady=10, fill="x")
-
+root.after(1000, update_esp_listbox)
+draw_timeline()
+update_clock()
 root.mainloop()
